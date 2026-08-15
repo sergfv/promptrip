@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Promptrip</title>
+  <meta name="description" content="Promptrip — turn any AI travel plan into an interactive map you own." />
+  <meta name="theme-color" content="#faf9f5" />
+
+  <!-- Social preview (Open Graph + Twitter) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Promptrip" />
+  <meta property="og:title" content="Promptrip — turn any AI travel plan into a map you own" />
+  <meta property="og:description" content="Plan a trip with any AI assistant, paste the reply, and get an installable, shareable, offline map of your days. No account." />
+  <meta property="og:url" content="https://sergfv.github.io/promptrip/" />
+  <meta property="og:image" content="https://sergfv.github.io/promptrip/docs/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Promptrip app icon — a map pin with a route — beside the name and tagline." />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Promptrip — turn any AI travel plan into a map you own" />
+  <meta name="twitter:description" content="Plan a trip with any AI assistant, paste the reply, and get an installable, shareable, offline map of your days. No account." />
+  <meta name="twitter:image" content="https://sergfv.github.io/promptrip/docs/og-image.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="icons/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Promptrip" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    /* Smart root: show the welcome landing only to brand-new visitors.
+       Skipped for shared itinerary links (#i=…), the importer (#import),
+       the installed PWA, and anyone who has used the app before. Runs
+       before first paint so there's no flash of the app underneath. */
+    (function () {
+      try {
+        var h = location.hash || '';
+        var shared = /^#i=/.test(h) || h === '#import';
+        var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+        var seen = false, hasLib = false;
+        try { seen = localStorage.getItem('pt_landing_seen') === '1'; } catch (e) {}
+        try { hasLib = !!localStorage.getItem('library.v1'); } catch (e) {}
+        if (!shared && !standalone && !seen && !hasLib) {
+          document.documentElement.classList.add('show-landing');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <!-- On desktop (≥700px) the whole app sits inside a centered phone-width
+       frame, so first-time visitors see it as it really looks on a phone. The
+       frame's transform also makes it the containing block for the
+       position:fixed children (map, controls, sheets), so they anchor to the
+       frame instead of the window. On mobile it's display:contents — a no-op. -->
+  <div id="frame">
+  <div id="landing" role="region" aria-label="Welcome to Promptrip">
+    <div class="lp-card">
+      <img class="lp-icon" src="icons/icon-192.png" width="92" height="92" alt="" />
+      <h1 class="lp-brand">Promptrip</h1>
+      <p class="lp-tag">Turn any AI-generated travel plan into an interactive itinerary app on your phone.</p>
+      <div class="lp-vals">
+        <span>Works with any AI</span><span>No account</span><span>Installs like an app</span>
+      </div>
+      <button class="lp-go" id="lpGo" type="button">Open the map</button>
+      <ol class="lp-steps">
+        <li><span>1</span> Plan a trip with any AI — ChatGPT, Claude or Gemini.</li>
+        <li><span>2</span> Paste Promptrip's prompt, then paste the reply back.</li>
+        <li><span>3</span> Add it to your Home Screen — it opens like a real app, even offline.</li>
+      </ol>
+      <button class="lp-make" id="lpMake" type="button">or create your own itinerary →</button>
+    </div>
+  </div>
+
+  <div id="map" role="application" aria-label="Itinerary map"></div>
+
+  <nav id="daybar" aria-label="Filter by day"></nav>
+
+  <div id="dayintro" class="dayintro" hidden role="note" aria-label="About this day"></div>
+
+  <div id="controls-list">
+    <button id="list-btn" class="ctl-btn" type="button" aria-label="View stops"></button>
+  </div>
+  <div id="controls">
+    <button id="menu-btn" class="ctl-btn" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false"></button>
+  </div>
+  <div id="controls-locate">
+    <button id="locate" class="ctl-btn" type="button" aria-label="Show my location"></button>
+  </div>
+  <div id="menu" class="menu" hidden role="menu"></div>
+
+  <section id="carousel" class="carousel" aria-label="Stops on this day"></section>
+
+  <div id="scrim" class="scrim" hidden></div>
+  <section id="detail" class="detail" hidden aria-live="polite"></section>
+
+  <aside id="listview" class="listview" hidden aria-label="Full itinerary"></aside>
+
+  <aside id="libraryview" class="listview" hidden aria-label="My itineraries"></aside>
+
+  <div id="lightbox" class="lightbox" hidden role="dialog" aria-label="Photo viewer"></div>
+
+  <section id="importscreen" class="importscreen" hidden aria-label="Make your own itinerary"></section>
+  </div><!-- /#frame -->
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="lz-string.min.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script>
+    /* Landing dismiss: remember the visit, reveal the app. "Create your own"
+       also opens the importer (openImport is defined in app.js). */
+    (function () {
+      function dismiss() {
+        try { localStorage.setItem('pt_landing_seen', '1'); } catch (e) {}
+        document.documentElement.classList.remove('show-landing');
+      }
+      var go = document.getElementById('lpGo');
+      var mk = document.getElementById('lpMake');
+      if (go) go.addEventListener('click', dismiss);
+      if (mk) mk.addEventListener('click', function () {
+        dismiss();
+        if (typeof openImport === 'function') openImport();
+      });
+    })();
+  </script>
+</body>
+</html>

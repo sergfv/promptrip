@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+*.swp
+*~
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+
+# Claude Code local config
+.claude/
+
+# Personal writing drafts (never publish)
+drafts/
