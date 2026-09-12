@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+*.swp
+*~
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+
+# Claude Code local config
+.claude/
+
+# Personal writing drafts (never publish)
+drafts/
+
+# Test tooling (headless Chrome driver) — never part of the deployed site
+node_modules/
+package.json
+package-lock.json

@@ -1,0 +1,96 @@
+// Promptrip — group planner security rules (paste into Firebase console → Firestore → Rules).
+//
+// The model: anyone who opens a plan link is signed in anonymously (a stable
+// hidden identity per device — no sign-up). Anyone can read the plan, add
+// ideas, vote, record their own arrival/leave, and arrange the days. The plan
+// itself — its name, and the note that it went to an AI — belongs to the
+// organiser, recognised by the id that created it OR by the name that id chose,
+// so their phone counts as well as their laptop. Deleting the plan outright
+// stays with the creating device.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function planData(planId) { return get(/databases/$(db)/documents/plans/$(planId)).data; }
+    function myEntry(planId) { return /databases/$(db)/documents/plans/$(planId)/people/$(request.auth.uid); }
+    // Identity is per device: the same person opening the link on their phone
+    // signs in as somebody else. So the organiser is recognised by the name the
+    // plan records as well as by the id that created it — the name they chose on
+    // this device must match. Anyone with the link can already add, vote and
+    // arrange, so this widens who may tidy the plan, not who may see it.
+    function curatorOf(planId) {
+      return signedIn() && (
+        planData(planId).curatorUid == request.auth.uid
+        || (planData(planId).curatorName != null
+            && exists(myEntry(planId))
+            && get(myEntry(planId)).data.name == planData(planId).curatorName)
+      );
+    }
+
+    // A shared trip: one map under a short id, so a link stays short and always
+    // opens the current version. Anyone with the link can read it; only the
+    // device that published it can replace or remove it.
+    match /trips/{tripId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /plans/{planId} {
+      allow read: if signedIn();
+      // Creating a plan stamps you as its curator; nobody else can claim it.
+      allow create: if signedIn() && request.resource.data.curatorUid == request.auth.uid;
+      // Renaming it, or recording that it was handed to an AI, is the organiser's
+      // — from whichever device they're holding. Deleting the whole plan stays
+      // with the device that created it: it's the one thing nobody can undo.
+      allow update: if signedIn() && (resource.data.curatorUid == request.auth.uid || curatorOf(planId));
+      allow delete: if signedIn() && resource.data.curatorUid == request.auth.uid;
+
+      // Names and arrival/leaving times are shared with the group, so everyone
+      // can see who's around when — but each person writes only their own entry.
+      match /people/{uid} {
+        allow read: if signedIn();
+        allow write: if signedIn() && uid == request.auth.uid;
+      }
+
+      // Anyone can suggest. Its content (title, place, photo, link) belongs to
+      // whoever added it — or the curator — but ANY member may move it to a
+      // different day, since arranging the days is now a shared job.
+      match /ideas/{ideaId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.byUid == request.auth.uid;
+        allow update: if signedIn() && (
+          resource.data.byUid == request.auth.uid
+          || curatorOf(planId)
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['day'])
+        );
+        allow delete: if signedIn() && (resource.data.byUid == request.auth.uid || curatorOf(planId));
+      }
+
+      // Images and photos, stored as shrunk base64 in their own documents so the
+      // live item list stays cheap. Anyone in the group can add one and read
+      // them; you can remove your own, and the curator can remove any.
+      match /images/{imageId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.byUid == request.auth.uid;
+        allow delete: if signedIn() && (resource.data.byUid == request.auth.uid || curatorOf(planId));
+      }
+
+      // One vote per person per idea, keyed <uid>_<ideaId>; you can only cast or withdraw your own.
+      match /votes/{voteId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid
+          && voteId == request.auth.uid + '_' + request.resource.data.ideaId;
+        allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      }
+
+      // The days: order and times. Anyone in the group can set a time or move a
+      // stop — it's a shared plan — while only the curator hands it to the AI.
+      match /schedule/{docId} {
+        allow read: if signedIn();
+        allow write: if signedIn();
+      }
+    }
+  }
+}
